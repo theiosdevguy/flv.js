@@ -236,6 +236,7 @@ class TransmuxingController {
         let probeData = null;
         let consumed = 0;
 
+        // read: load 时该函数接管 io 的 onDataArrival 回调，判断是不是支持的 flv 格式（FLVDemuxer.probe）
         if (byteStart > 0) {
             // IOController seeked immediately after opened, byteStart > 0 callback may received
             this._demuxer.bindDataSource(this._ioctl);
@@ -244,6 +245,7 @@ class TransmuxingController {
             consumed = this._demuxer.parseChunks(data, byteStart);
         } else if ((probeData = FLVDemuxer.probe(data)).match) {
             // Always create new FLVDemuxer
+            // read: 如果是支持的 flv 类型，这里初始化 demuxer
             this._demuxer = new FLVDemuxer(probeData, this._config);
 
             if (!this._remuxer) {
@@ -268,13 +270,15 @@ class TransmuxingController {
             this._demuxer.onMetaDataArrived = this._onMetaDataArrived.bind(this);
             this._demuxer.onScriptDataArrived = this._onScriptDataArrived.bind(this);
 
-            this._remuxer.bindDataSource(this._demuxer
-                         .bindDataSource(this._ioctl
-            ));
+            // read: 这里让 demuxer 接管 io 的 onDataArrival 回调，后续 io 获取的数据全部由 demuxer 进行处理
+            // read: demuxer 处理的数据再交给 remuxer 处理
+            this._remuxer.bindDataSource(
+                this._demuxer.bindDataSource(this._ioctl));
 
             this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
             this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
 
+            // read: 首次接收的数据要交给 demuxer 处理啊！这里只是把收到的第一次数据再包裹了一层，后面就和这里没关系了
             consumed = this._demuxer.parseChunks(data, byteStart);
         } else {
             probeData = null;

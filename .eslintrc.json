@@ -32,7 +32,7 @@
         "no-bitwise": 0,
         "no-alert": 2,
         "no-console": 0,
-        "no-debugger": 1,
+        "no-debugger": 0,
         "no-unused-vars": 0,
         "no-mixed-spaces-and-tabs": 2,
         "quotes": [2, "single", "avoid-escape"],

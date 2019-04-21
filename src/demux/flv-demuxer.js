@@ -36,6 +36,8 @@ function Swap32(src) {
 }
 
 function ReadBig32(array, index) {
+    // read: 翻转字节，大段序转成小段序
+    // Header size 是一个 32 位无符号整数。这里把三个字节分开的数转化为实际的值
     return ((array[index] << 24)     |
             (array[index + 1] << 16) |
             (array[index + 2] << 8)  |
@@ -107,9 +109,17 @@ class FLVDemuxer {
         this._videoTrack = {type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0};
         this._audioTrack = {type: 'audio', id: 2, sequenceNumber: 0, samples: [], length: 0};
 
+        // read: 这里判断计算器使用的字节序
+        // read: see http://javascript.ruanyifeng.com/stdlib/arraybuffer.html
+        // read: see http://jimliu.net/2015/09/26/a-brief-look-at-binary-ops-in-js/
         this._littleEndian = (function () {
             let buf = new ArrayBuffer(2);
+            // read: 256 二进制: 1 00000000
+            // 小端字节序，相对重要的字节排在后面
+            // 所以 Int8Array[0, 1], Int16Array[255]
+            // 显式以 little endian 写入数据, 此时buf里的内存布局应该是 00 01
             (new DataView(buf)).setInt16(0, 256, true);  // little-endian write
+            // 如果当前平台的字节序是 little endian，就是256；以 big endian 读取，则是1
             return (new Int16Array(buf))[0] === 256;  // platform-spec read, if equal then LE
         })();
     }
@@ -266,6 +276,7 @@ class FLVDemuxer {
 
     // function parseChunks(chunk: ArrayBuffer, byteStart: number): number;
     parseChunks(chunk, byteStart) {
+        debugger;
         if (!this._onError || !this._onMediaInfo || !this._onTrackMetadata || !this._onDataAvailable) {
             throw new IllegalStateException('Flv: onError & onMediaInfo & onTrackMetadata & onDataAvailable callback must be specified');
         }
@@ -289,6 +300,9 @@ class FLVDemuxer {
             }
 
             let v = new DataView(chunk, offset);
+            // read: http://javascript.ruanyifeng.com/stdlib/arraybuffer.html#toc22
+            // 大端、小端，网络字节序。网络字节序一般是大端，但是本机字节序一般是小端
+            // 所以处理网络数据时要使用 DataView，而且在取超过一个字节的数据时要显示声明字节序
             let prevTagSize0 = v.getUint32(0, !le);
             if (prevTagSize0 !== 0) {
                 Log.w(this.TAG, 'PrevTagSize0 !== 0 !!!');
@@ -296,24 +310,34 @@ class FLVDemuxer {
             offset += 4;
         }
 
+        // read: 第一次 offset === 13
+        // 其他情况 offset === 0
+        // tag + previous tag size 一个循环
         while (offset < chunk.byteLength) {
             this._dispatch = true;
 
             let v = new DataView(chunk, offset);
 
+            // read: 一个完整的 flv tag 应该大于 11 + 4 个字节
+            // see: https://juejin.im/post/5ae04c6651882567244da8eb
             if (offset + 11 + 4 > chunk.byteLength) {
                 // data not enough for parsing an flv tag
+                debugger;
                 break;
             }
 
             let tagType = v.getUint8(0);
+            console.log(v.getUint32(0, !le));
+            // read: 大端读取，截取三个字节
             let dataSize = v.getUint32(0, !le) & 0x00FFFFFF;
 
             if (offset + 11 + dataSize + 4 > chunk.byteLength) {
                 // data not enough for parsing actual data body
+                debugger;
                 break;
             }
 
+            // read: 8 audio, 9 video, 18 script tag
             if (tagType !== 8 && tagType !== 9 && tagType !== 18) {
                 Log.w(this.TAG, `Unsupported tag type ${tagType}, skipped`);
                 // consume the whole tag (skip it)
@@ -321,18 +345,24 @@ class FLVDemuxer {
                 continue;
             }
 
+            // read: 解析时间戳，读4个字节
             let ts2 = v.getUint8(4);
             let ts1 = v.getUint8(5);
             let ts0 = v.getUint8(6);
             let ts3 = v.getUint8(7);
 
+            // read: 默认是大端字节序
             let timestamp = ts0 | (ts1 << 8) | (ts2 << 16) | (ts3 << 24);
 
+            // read: 大端读取，截取三个字节
+            // 注意这里是从第七位开始读的，
+            // 所以需要 & 0x00FFFFFF 这样就拿到了 streamId 的三分字节
             let streamId = v.getUint32(7, !le) & 0x00FFFFFF;
             if (streamId !== 0) {
                 Log.w(this.TAG, 'Meet tag which has StreamID != 0!');
             }
 
+            // read: offset + 11 就是 tag data 的偏移量
             let dataOffset = offset + 11;
 
             switch (tagType) {
