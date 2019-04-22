@@ -38,6 +38,7 @@ function decodeUTF8(uint8array) {
 
     while (i < length) {
         if (input[i] < 0x80) {
+            // read: 标准 ASCII 0 到 (128 - 1)
             out.push(String.fromCharCode(input[i]));
             ++i;
             continue;

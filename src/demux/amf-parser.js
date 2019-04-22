@@ -70,10 +70,12 @@ class AMF {
             throw new IllegalStateException('Data not enough when parse String');
         }
         let v = new DataView(arrayBuffer, dataOffset, dataSize);
+        // read: 第2-3个字节为Uint16类型值，标识字符串的长度
         let length = v.getUint16(0, !le);
 
         let str;
         if (length > 0) {
+            // read: 读取相应长度的字符串并解析为 utf-8 编码
             str = decodeUTF8(new Uint8Array(arrayBuffer, dataOffset + 2, length));
         } else {
             str = '';
@@ -132,6 +134,7 @@ class AMF {
         let value;
         let objectEnd = false;
 
+        // read: 各个类型看这里 https://www.jianshu.com/p/07657d85617e
         try {
             switch (type) {
                 case 0:  // Number(Double) type
@@ -144,6 +147,7 @@ class AMF {
                     offset += 1;
                     break;
                 }
+                // read: amf tag 为 0x02, 标识是字符串
                 case 2: {  // String type
                     let amfstr = AMF.parseString(arrayBuffer, dataOffset + 1, dataSize - 1);
                     value = amfstr.data;
@@ -172,9 +176,12 @@ class AMF {
                     break;
                 }
                 case 8: { // ECMA array type (Mixed array)
+                    // read: 一般总是0x08，表示数组, script tag 的第二个 amf 包
                     value = {};
-                    offset += 4;  // ECMAArrayLength(UI32)
+                    offset += 4;  // ECMAArrayLength(UI32), 数组的个数
+                    // read: 不规范的编码有可能会丢失 ScriptDataObjectEnd (9) 这里主要是为了兼容
                     let terminal = 0;  // workaround for malformed MixedArrays which has missing ScriptDataObjectEnd
+                    // read: see https://www.jianshu.com/p/07657d85617e ScriptDataVariableEnd
                     if ((v.getUint32(dataSize - 4, !le) & 0x00FFFFFF) === 9) {
                         terminal = 3;
                     }
@@ -182,6 +189,7 @@ class AMF {
                         let amfvar = AMF.parseVariable(arrayBuffer, dataOffset + offset, dataSize - offset - terminal);
                         if (amfvar.objectEnd)
                             break;
+                        // read: 所有的数据都是以数据类型 + (数据长度) + 数据格式出现，数据类型占1个字节，数据长度看数据类型是否存在，后面才是数据
                         value[amfvar.data.name] = amfvar.data.value;
                         offset += amfvar.size;
                     }

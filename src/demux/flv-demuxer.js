@@ -328,7 +328,7 @@ class FLVDemuxer {
 
             let tagType = v.getUint8(0);
             console.log(v.getUint32(0, !le));
-            // read: 大端读取，截取三个字节
+            // read: 大端读取，截取三个字节。flv tag 的大小
             let dataSize = v.getUint32(0, !le) & 0x00FFFFFF;
 
             if (offset + 11 + dataSize + 4 > chunk.byteLength) {
@@ -356,7 +356,7 @@ class FLVDemuxer {
 
             // read: 大端读取，截取三个字节
             // 注意这里是从第七位开始读的，
-            // 所以需要 & 0x00FFFFFF 这样就拿到了 streamId 的三分字节
+            // 所以需要 & 0x00FFFFFF 这样就拿到了 streamId 的三个字节
             let streamId = v.getUint32(7, !le) & 0x00FFFFFF;
             if (streamId !== 0) {
                 Log.w(this.TAG, 'Meet tag which has StreamID != 0!');
@@ -370,6 +370,7 @@ class FLVDemuxer {
                     this._parseAudioData(chunk, dataOffset, dataSize, timestamp);
                     break;
                 case 9:  // Video
+                    debugger;
                     this._parseVideoData(chunk, dataOffset, dataSize, timestamp, byteStart + offset);
                     break;
                 case 18:  // ScriptDataObject
@@ -396,6 +397,7 @@ class FLVDemuxer {
     }
 
     _parseScriptData(arrayBuffer, dataOffset, dataSize) {
+        // read: 解析 script tag 的 amf 包
         let scriptData = AMF.parseScriptData(arrayBuffer, dataOffset, dataSize);
 
         if (scriptData.hasOwnProperty('onMetaData')) {
@@ -862,16 +864,22 @@ class FLVDemuxer {
             return;
         }
 
+        // read: VideoTagHeader 通常由一个字节构成，前4bit表示类型，后4bit表示编码器Id。
         let spec = (new Uint8Array(arrayBuffer, dataOffset, dataSize))[0];
 
+        // read: 240 = 11110000
+        // read: 与 240 按位与并向右移 4 位就拿到了前四个 bit 的值
         let frameType = (spec & 240) >>> 4;
+        // read: 15 = 1111
         let codecId = spec & 15;
 
+        // read: 只支持 avc(h264) 编码
         if (codecId !== 7) {
             this._onError(DemuxErrors.CODEC_UNSUPPORTED, `Flv: Unsupported codec in video frame: ${codecId}`);
             return;
         }
 
+        // read: dataOffset + 1 移动到Video数据区
         this._parseAVCVideoPacket(arrayBuffer, dataOffset + 1, dataSize - 1, tagTimestamp, tagPosition, frameType);
     }
 
@@ -884,11 +892,14 @@ class FLVDemuxer {
         let le = this._littleEndian;
         let v = new DataView(arrayBuffer, dataOffset, dataSize);
 
-        let packetType = v.getUint8(0);
-        let cts_unsigned = v.getUint32(0, !le) & 0x00FFFFFF;
+        let packetType = v.getUint8(0); // read: avc packet type
+        let cts_unsigned = v.getUint32(0, !le) & 0x00FFFFFF; // read: 关于CTS：这是一个比较难以理解的概念，需要和pts，dts配合一起理解。
         let cts = (cts_unsigned << 8) >> 8;  // convert to 24-bit signed int
 
         if (packetType === 0) {  // AVCDecoderConfigurationRecord
+            // read: AVCsequenceheader只有出现在第一个Video Tag，只有一个。
+            // 为了能够从FLV中获取NALU，必须知道前面的NALU长度所占的字节数，
+            // 通常是1、2、4个字节，这个内容则必须从AVCDecoderConfigurationRecord中获取
             this._parseAVCDecoderConfigurationRecord(arrayBuffer, dataOffset + 4, dataSize - 4);
         } else if (packetType === 1) {  // One or more Nalus
             this._parseAVCVideoData(arrayBuffer, dataOffset + 4, dataSize - 4, tagTimestamp, tagPosition, frameType, cts);
@@ -901,6 +912,7 @@ class FLVDemuxer {
     }
 
     _parseAVCDecoderConfigurationRecord(arrayBuffer, dataOffset, dataSize) {
+        // read: 解析 AVCsequenceheader
         if (dataSize < 7) {
             Log.w(this.TAG, 'Flv: Invalid AVCDecoderConfigurationRecord, lack of data!');
             return;
@@ -928,8 +940,29 @@ class FLVDemuxer {
             }
         }
 
-        let version = v.getUint8(0);  // configurationVersion
-        let avcProfile = v.getUint8(1);  // avcProfileIndication
+        /**
+         aligned(8) class AVCDecoderConfigurationRecord {
+            unsigned int(8) configurationVersion = 1;  //版本号
+            unsigned int(8) AVCProfileIndication;     //sps[1]，即0x67后面那个字节
+            unsigned int(8) profile_compatibility;     //sps[2]
+            unsigned int(8) AVCLevelIndication;      //sps[3]
+            bit(6) reserved = '111111'b;
+            unsigned int(2) lengthSizeMinusOne;     //NALUnitLength的长度减1，一般为3
+            bit(3) reserved = '111'b;
+            unsigned int(5) numOfSequenceParameterSets;    //sps个数，一般为1
+            for ( i=0; i<numOfSequenceParameterSets; i++ ) {
+                unsigned int(16) sequenceParameterSetLength;  //sps的长度
+                bit(8*sequenceParameterSetLength) sequenceParameterSetNALUnit;
+            }
+            unsigned int(8) numOfPictureParameterSets;      //pps个数，一般为1
+            for ( i=0; i<numOfPictureParameterSets; i++) {
+                unsigned int(16) pictureParameterSetLength;   //pps长度
+                bit(8*pictureParameterSetLength) pictureParameterSetNALUnit;
+            }
+         }
+         **/
+        let version = v.getUint8(0);  // read: configurationVersion, 版本号
+        let avcProfile = v.getUint8(1);  // read: avcProfileIndication, sps[1]，即0x67后面那个字节
         let profileCompatibility = v.getUint8(2);  // profile_compatibility
         let avcLevel = v.getUint8(3);  // AVCLevelIndication
 
@@ -938,12 +971,15 @@ class FLVDemuxer {
             return;
         }
 
+        // read: 3 = "11", 取一个字节的后两位
         this._naluLengthSize = (v.getUint8(4) & 3) + 1;  // lengthSizeMinusOne
+        // read: NALU长度所占的字节数，通常是1、2、4个字节, 这里其实不应该判断等于 3
         if (this._naluLengthSize !== 3 && this._naluLengthSize !== 4) {  // holy shit!!!
             this._onError(DemuxErrors.FORMAT_ERROR, `Flv: Strange NaluLengthSizeMinusOne: ${this._naluLengthSize - 1}`);
             return;
         }
 
+        // read: 31 = "11111", 取一个字节的后五位, sps个数，一般为1
         let spsCount = v.getUint8(5) & 31;  // numOfSequenceParameterSets
         if (spsCount === 0) {
             this._onError(DemuxErrors.FORMAT_ERROR, 'Flv: Invalid AVCDecoderConfigurationRecord: No SPS');
@@ -955,6 +991,7 @@ class FLVDemuxer {
         let offset = 6;
 
         for (let i = 0; i < spsCount; i++) {
+            // read: sps的长度
             let len = v.getUint16(offset, !le);  // sequenceParameterSetLength
             offset += 2;
 
@@ -966,6 +1003,8 @@ class FLVDemuxer {
             let sps = new Uint8Array(arrayBuffer, dataOffset + offset, len);
             offset += len;
 
+            // read: 这里是据诶系 sps sequenceParameterSet, 需要另外研究
+            // read: todo
             let config = SPSParser.parseSPS(sps);
             if (i !== 0) {
                 // ignore other sps's config
@@ -1039,6 +1078,7 @@ class FLVDemuxer {
 
         offset++;
 
+        // read: todo
         for (let i = 0; i < ppsCount; i++) {
             let len = v.getUint16(offset, !le);  // pictureParameterSetLength
             offset += 2;
@@ -1069,6 +1109,8 @@ class FLVDemuxer {
     }
 
     _parseAVCVideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts) {
+        // read: 解析 一个或多个 NALU
+        // frameType 从 video tag header 里面解析的
         let le = this._littleEndian;
         let v = new DataView(arrayBuffer, dataOffset, dataSize);
 
