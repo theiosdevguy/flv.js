@@ -275,6 +275,7 @@ class TransmuxingController {
             this._remuxer.bindDataSource(
                 this._demuxer.bindDataSource(this._ioctl));
 
+            // read: 将这些回调注册到 remuxer 里面，方便向外部抛事件
             this._remuxer.onInitSegment = this._onRemuxerInitSegmentArrival.bind(this);
             this._remuxer.onMediaSegment = this._onRemuxerMediaSegmentArrival.bind(this);
 

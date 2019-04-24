@@ -276,7 +276,7 @@ class FLVDemuxer {
 
     // function parseChunks(chunk: ArrayBuffer, byteStart: number): number;
     parseChunks(chunk, byteStart) {
-        debugger;
+        // debugger;
         if (!this._onError || !this._onMediaInfo || !this._onTrackMetadata || !this._onDataAvailable) {
             throw new IllegalStateException('Flv: onError & onMediaInfo & onTrackMetadata & onDataAvailable callback must be specified');
         }
@@ -322,7 +322,7 @@ class FLVDemuxer {
             // see: https://juejin.im/post/5ae04c6651882567244da8eb
             if (offset + 11 + 4 > chunk.byteLength) {
                 // data not enough for parsing an flv tag
-                debugger;
+                // debugger;
                 break;
             }
 
@@ -333,7 +333,7 @@ class FLVDemuxer {
 
             if (offset + 11 + dataSize + 4 > chunk.byteLength) {
                 // data not enough for parsing actual data body
-                debugger;
+                // debugger;
                 break;
             }
 
@@ -370,7 +370,7 @@ class FLVDemuxer {
                     this._parseAudioData(chunk, dataOffset, dataSize, timestamp);
                     break;
                 case 9:  // Video
-                    debugger;
+                    // debugger;
                     this._parseVideoData(chunk, dataOffset, dataSize, timestamp, byteStart + offset);
                     break;
                 case 18:  // ScriptDataObject
@@ -900,6 +900,7 @@ class FLVDemuxer {
             // read: AVCsequenceheader只有出现在第一个Video Tag，只有一个。
             // 为了能够从FLV中获取NALU，必须知道前面的NALU长度所占的字节数，
             // 通常是1、2、4个字节，这个内容则必须从AVCDecoderConfigurationRecord中获取
+            // 解码器配置，sps, pps
             this._parseAVCDecoderConfigurationRecord(arrayBuffer, dataOffset + 4, dataSize - 4);
         } else if (packetType === 1) {  // One or more Nalus
             this._parseAVCVideoData(arrayBuffer, dataOffset + 4, dataSize - 4, tagTimestamp, tagPosition, frameType, cts);
@@ -972,8 +973,12 @@ class FLVDemuxer {
         }
 
         // read: 3 = "11", 取一个字节的后两位
+        // lengthSizeMinusOne + 1 = "NALU长度字段"所占字节数
         this._naluLengthSize = (v.getUint8(4) & 3) + 1;  // lengthSizeMinusOne
-        // read: NALU长度所占的字节数，通常是1、2、4个字节, 这里其实不应该判断等于 3
+        // read: "NALU长度"所占的字节数，通常是1、2、4个字节, 这里其实不应该判断等于 3
+        // 非常重要, 是 H.264 视频中 NALU 的长度,
+        // 计算方法是 1 + (lengthSizeMinusOne & 3), NALU的长度怎么会一直都是4呢?
+        // 其实这不是NALU的长度, 而是NALU中, 表示长度的那个字段的长度是4字节(真绕啊).
         if (this._naluLengthSize !== 3 && this._naluLengthSize !== 4) {  // holy shit!!!
             this._onError(DemuxErrors.FORMAT_ERROR, `Flv: Strange NaluLengthSizeMinusOne: ${this._naluLengthSize - 1}`);
             return;
@@ -1129,13 +1134,18 @@ class FLVDemuxer {
             // Nalu with length-header (AVC1)
             let naluSize = v.getUint32(offset, !le);  // Big-Endian read
             if (lengthSize === 3) {
+                // read: 如果"表示NALU长度的字段"占三个字节
                 naluSize >>>= 8;
             }
             if (naluSize > dataSize - lengthSize) {
+                // read: 说明长度不够啊啊啊
                 Log.w(this.TAG, `Malformed Nalus near timestamp ${dts}, NaluSize > DataSize!`);
                 return;
             }
 
+            // read: 这里就需要了解 nalu 的语法结构了
+            // 0x1F = 11111
+            // 这里需要明确 h264 裸流和 flv 的关系
             let unitType = v.getUint8(offset + lengthSize) & 0x1F;
 
             if (unitType === 5) {  // IDR
@@ -1144,8 +1154,13 @@ class FLVDemuxer {
 
             let data = new Uint8Array(arrayBuffer, dataOffset + offset, lengthSize + naluSize);
             let unit = {type: unitType, data: data};
-            units.push(unit);
-            length += data.byteLength;
+            if (unitType === 6) {
+                // 丢弃 sei
+                console.log('Dropped SEI');
+            } else {
+                units.push(unit);
+                length += data.byteLength;
+            }
 
             offset += lengthSize + naluSize;
         }
