@@ -21,6 +21,7 @@
 class MP4 {
 
     static init() {
+        // debugger;
         MP4.types = {
             avc1: [], avcC: [], btrt: [], dinf: [],
             dref: [], esds: [], ftyp: [], hdlr: [],
@@ -311,8 +312,8 @@ class MP4 {
             MP4.box(MP4.types.stsc, MP4.constants.STSC),  // Sample-To-Chunk
             MP4.box(MP4.types.stsz, MP4.constants.STSZ),  // Sample size
             MP4.box(MP4.types.stco, MP4.constants.STCO)   // Chunk offset
-        ); 
-        return result; 
+        );
+        return result;
     }
 
     // Sample description box

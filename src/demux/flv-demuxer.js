@@ -327,7 +327,7 @@ class FLVDemuxer {
             }
 
             let tagType = v.getUint8(0);
-            console.log(v.getUint32(0, !le));
+            // console.log(v.getUint32(0, !le));
             // read: 大端读取，截取三个字节。flv tag 的大小
             let dataSize = v.getUint32(0, !le) & 0x00FFFFFF;
 
@@ -1125,6 +1125,11 @@ class FLVDemuxer {
         const lengthSize = this._naluLengthSize;
         let dts = this._timestampBase + tagTimestamp;
         let keyframe = (frameType === 1);  // from FLV Frame Type constants
+        if (keyframe) {
+            // console.log('Get keyframe from flv tag info');
+        }
+
+        let parsedKeyNalu = false
 
         while (offset < dataSize) {
             if (offset + 4 >= dataSize) {
@@ -1148,15 +1153,29 @@ class FLVDemuxer {
             // 这里需要明确 h264 裸流和 flv 的关系
             let unitType = v.getUint8(offset + lengthSize) & 0x1F;
 
+            /** fix start **/
+            // 如果 flv tag 告诉我们是关键帧，但是第一个 nalu 类型不是 idr 时强制转换
+            if (keyframe && !parsedKeyNalu && unitType !== 5) {
+                console.log('Fix: flv video tag tell us this is keyframe, but the first nalu is not a idr type');
+                // 0xE0 = 224 = 0b11100000
+                // 5 = idr
+                const value = (v.getUint8(offset + lengthSize) & 0xE0) | 5
+                v.setUint8(offset + lengthSize, value)
+                parsedKeyNalu = true;
+                unitType = 5;
+            }
+            /** fix end **/
+
             if (unitType === 5) {  // IDR
+                // console.log('Get IDR nalu');
                 keyframe = true;
             }
 
             let data = new Uint8Array(arrayBuffer, dataOffset + offset, lengthSize + naluSize);
             let unit = {type: unitType, data: data};
             if (unitType === 6) {
-                // 丢弃 sei
-                console.log('Dropped SEI');
+                // 丢弃 sei, 解决部分赛事流的 sei 不规范，导致 flv 解码失败
+                // console.log(`[${this.TAG}] > Drop SEI`);
             } else {
                 units.push(unit);
                 length += data.byteLength;
