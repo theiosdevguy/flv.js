@@ -414,6 +414,7 @@ class MSEController {
     _doAppendSegments() {
         let pendingSegments = this._pendingSegments;
 
+        debugger;
         for (let type in pendingSegments) {
             if (!this._sourceBuffers[type] || this._sourceBuffers[type].updating) {
                 continue;

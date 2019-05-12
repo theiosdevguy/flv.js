@@ -54,8 +54,8 @@ class MP4Remuxer {
         // Workaround for chrome < 50: Always force first sample as a Random Access Point in media segment
         // see https://bugs.chromium.org/p/chromium/issues/detail?id=229412
         this._forceFirstIDR = (Browser.chrome &&
-                              (Browser.version.major < 50 ||
-                              (Browser.version.major === 50 && Browser.version.build < 2661))) ? true : false;
+            (Browser.version.major < 50 ||
+                (Browser.version.major === 50 && Browser.version.build < 2661))) ? true : false;
 
         // Workaround for IE11/Edge: Fill silent aac frame after keyframe-seeking
         // Make audio beginDts equals with video beginDts, in order to fix seek freeze
@@ -130,7 +130,7 @@ class MP4Remuxer {
     }
 
     remux(audioTrack, videoTrack) {
-        // debugger;
+        debugger;
         if (!this._onMediaSegment) {
             throw new IllegalStateException('MP4Remuxer: onMediaSegment callback must be specificed!');
         }
@@ -281,6 +281,9 @@ class MP4Remuxer {
         }
 
         // Insert [stashed lastSample in the previous batch] to the front
+        // read: 为了修正后续的 samples 能与上一次的 samples 形成连续性(MSE要求连续的segments之间是不能存在时间戳间隙)，
+        // 所以取这次 samples 中第一个 sample 的时间戳，追加到上一次 samples 末尾的位置，
+        // 根据差值(dtsCorrection)，后面所有 sample 时间戳做相应平移。
         if (this._audioStashedLastSample != null) {
             let sample = this._audioStashedLastSample;
             this._audioStashedLastSample = null;
@@ -297,6 +300,7 @@ class MP4Remuxer {
         let firstSampleOriginalDts = samples[0].dts - this._dtsBase;
 
         // calculate dtsCorrection
+        // read: 计算更正后的 dts
         if (this._audioNextDts) {
             dtsCorrection = firstSampleOriginalDts - this._audioNextDts;
         } else {  // this._audioNextDts == undefined
@@ -610,6 +614,7 @@ class MP4Remuxer {
         let mp4Samples = [];
 
         // Correct dts for each sample, and calculate sample duration. Then output to mp4Samples
+        // read: 这里主要是把 flv tag 计算的绝对时间戳转化为本地相对的时间戳
         for (let i = 0; i < samples.length; i++) {
             let sample = samples[i];
             let originalDts = sample.dts - this._dtsBase;
@@ -709,6 +714,7 @@ class MP4Remuxer {
             this._videoSegmentInfoList.append(info);
         }
 
+        // read: track = videoTrack
         track.samples = mp4Samples;
         track.sequenceNumber++;
 
