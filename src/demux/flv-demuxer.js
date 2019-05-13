@@ -229,7 +229,7 @@ class FLVDemuxer {
     }
 
     set timestampBase(base) {
-        debugger;
+        // debugger;
         this._timestampBase = base;
     }
 

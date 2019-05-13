@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright (C) 2016 Bilibili. All Rights Reserved.
  *
  * @author zheng qian <xqq@xqq.im>
@@ -354,116 +354,91 @@ class MP4Remuxer {
             let sample = samples[i];
             let unit = sample.unit;
             // read: - _dtsBase 主要是为了计算相对的时间
-            let originalDts = sample.dts - this._dtsBase;   // 相对 dts
-            let dts = originalDts;
+            let originalDts = sample.dts - this._dtsBase;
+            let dts = originalDts - dtsCorrection;
+
+            if (firstDts === -1) {
+                firstDts = dts;
+            }
+
+            let sampleDuration = 0;
+
+            if (i !== samples.length - 1) {
+                let nextDts = samples[i + 1].dts - this._dtsBase - dtsCorrection;
+                sampleDuration = nextDts - dts;
+            } else {  // the last sample
+                if (lastSample != null) {  // use stashed sample's dts to calculate sample duration
+                    let nextDts = lastSample.dts - this._dtsBase - dtsCorrection;
+                    sampleDuration = nextDts - dts;
+                } else if (mp4Samples.length >= 1) {  // use second last sample duration
+                    sampleDuration = mp4Samples[mp4Samples.length - 1].duration;
+                } else {  // the only one sample, use reference sample duration
+                    sampleDuration = Math.floor(refSampleDuration);
+                }
+            }
 
             let needFillSilentFrames = false;
             let silentFrames = null;
 
-            let sampleDuration = 0;
+            // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
+            if (sampleDuration > refSampleDuration * 1.5 && this._audioMeta.codec !== 'mp3' && this._fillAudioTimestampGap && !Browser.safari) {
+                // We need to insert silent frames to fill timestamp gap
+                needFillSilentFrames = true;
+                let delta = Math.abs(sampleDuration - refSampleDuration);
+                let frameCount = Math.ceil(delta / refSampleDuration);
+                let currentDts = dts + refSampleDuration;  // Notice: in float
 
-            if (originalDts < -0.001) {
-                continue; //pass the first sample with the invalid dts
-            }
+                Log.w(this.TAG, 'Large audio timestamp gap detected, may cause AV sync to drift. ' +
+                                'Silent frames will be generated to avoid unsync.\n' +
+                                `dts: ${dts + sampleDuration} ms, expected: ${dts + Math.round(refSampleDuration)} ms, ` +
+                                `delta: ${Math.round(delta)} ms, generate: ${frameCount} frames`);
 
-            // read see: https://github.com/bilibili/flv.js/pull/354/files
-            if (this._audioMeta.codec !== 'mp3') {
-                // for AAC codec, we need to keep dts increase based on refSampleDuration
-                const maxAudioFramesDrift = 3;
-
-                // read: 当前的参考时间，预期的参考 dts
-                let curRefDts = originalDts;    // 预期的参考 dts
-                if (this._audioNextDts) {
-                    curRefDts = this._audioNextDts;
+                let silentUnit = AAC.getSilentFrame(this._audioMeta.originalCodec, this._audioMeta.channelCount);
+                if (silentUnit == null) {
+                    Log.w(this.TAG, 'Unable to generate silent frame for ' +
+                                    `${this._audioMeta.originalCodec} with ${this._audioMeta.channelCount} channels, repeat last frame`);
+                    // Repeat last frame
+                    silentUnit = unit;
                 }
+                silentFrames = [];
 
-                dtsCorrection = originalDts - curRefDts;    // read: 校正的 dts 时间戳
-                if (dtsCorrection <= -maxAudioFramesDrift * refSampleDuration) {
-                    debugger;
-                    // If we're overlapping by more than maxAudioFramesDrift number of frame, drop this sample
-                    // read: 音频延迟太多了，不要再播放了, drop it
-                    Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
-                    continue;
-                }
-                else if (dtsCorrection >= maxAudioFramesDrift * refSampleDuration && this._fillAudioTimestampGap && !Browser.safari) {
-                    // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
-                    // read: 该 sample 的 dts 在预期之后(3 倍漂移)，预期 dts 到该 dts 之间需要插入静音帧才能保证音视频同步
-                    needFillSilentFrames = true;
-
-                    // We need to insert silent frames to fill timestamp gap
-                    let frameCount = Math.floor(dtsCorrection / refSampleDuration);
-                    Log.w(this.TAG, 'Large audio timestamp gap(3 times refSampleDuration) detected, may cause AV sync to drift. ' +
-                        'Silent frames will be generated to avoid unsync.\n' +
-                        `originalDts: ${originalDts} ms, curRefDts: ${curRefDts} ms, ` +
-                        `dtsCorrection: ${Math.round(dtsCorrection)} ms, generate: ${frameCount} frames`);
-
-                    // read: 给外部用
-                    dts = Math.floor(curRefDts);
-                    sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
-
-                    let silentUnit = AAC.getSilentFrame(this._audioMeta.originalCodec, this._audioMeta.channelCount);
-                    if (silentUnit == null) {
-                        Log.w(this.TAG, 'Unable to generate silent frame for ' +
-                            `${this._audioMeta.originalCodec} with ${this._audioMeta.channelCount} channels, repeat last frame`);
-                        // Repeat last frame
-                        silentUnit = unit;
+                for (let j = 0; j < frameCount; j++) {
+                    let intDts = Math.round(currentDts);  // round to integer
+                    if (silentFrames.length > 0) {
+                        // Set previous frame sample duration
+                        let previousFrame = silentFrames[silentFrames.length - 1];
+                        previousFrame.duration = intDts - previousFrame.dts;
                     }
-
-                    silentFrames = [];
-                    for (let j = 0; j < frameCount; j++) {
-                        curRefDts += refSampleDuration;
-                        let intDts = Math.floor(curRefDts);  // change to integer
-                        let intDuration = Math.floor(curRefDts + refSampleDuration) - intDts;
-                        let frame = {
-                            dts: intDts,
-                            pts: intDts,
-                            cts: 0,
-                            unit: silentUnit,
-                            size: silentUnit.byteLength,
-                            duration: intDuration,  // wait for next sample
-                            originalDts: originalDts,
-                            flags: {
-                                isLeading: 0,
-                                dependsOn: 1,
-                                isDependedOn: 0,
-                                hasRedundancy: 0
-                            }
-                        };
-                        silentFrames.push(frame);
-                        // mdatBytes += unit.byteLength; // error?
-                        mdatBytes += frame.size;
-                    }
-
-                    this._audioNextDts = curRefDts + refSampleDuration;
-                } else {
-                    dts = Math.floor(curRefDts);
-                    sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
-
-                    this._audioNextDts = curRefDts + refSampleDuration;
-                }
-            } else {
-                // keep the original dts calculate algorithm for mp3, 对于 mp3 保持原来的算法
-                dts = originalDts - dtsCorrection;
-
-                if (i !== samples.length - 1) {
-                    let nextDts = samples[i + 1].dts - this._dtsBase - dtsCorrection;
-                    sampleDuration = nextDts - dts;
-                } else {    // the last sample
-                    if (lastSample != null) {  // use stashed sample's dts to calculate sample duration
-                        let nextDts = lastSample.dts - this._dtsBase - dtsCorrection;
-                        sampleDuration = nextDts - dts;
-                    } else if (mp4Samples.length >= 1) {  // use second last sample duration
-                        sampleDuration = mp4Samples[mp4Samples.length - 1].duration;
-                    } else {  // the only one sample, use reference sample duration
-                        sampleDuration = Math.floor(refSampleDuration);
-                    }
+                    let frame = {
+                        dts: intDts,
+                        pts: intDts,
+                        cts: 0,
+                        unit: silentUnit,
+                        size: silentUnit.byteLength,
+                        duration: 0,  // wait for next sample
+                        originalDts: originalDts,
+                        flags: {
+                            isLeading: 0,
+                            dependsOn: 1,
+                            isDependedOn: 0,
+                            hasRedundancy: 0
+                        }
+                    };
+                    silentFrames.push(frame);
+                    mdatBytes += frame.size;
+                    currentDts += refSampleDuration;
                 }
 
-                this._audioNextDts = dts + sampleDuration;
-            }
+                // last frame: align end time to next frame dts
+                let lastFrame = silentFrames[silentFrames.length - 1];
+                lastFrame.duration = dts + sampleDuration - lastFrame.dts;
 
-            if (firstDts === -1) {
-                firstDts = dts;
+                // silentFrames.forEach((frame) => {
+                //     Log.w(this.TAG, `SilentAudio: dts: ${frame.dts}, duration: ${frame.duration}`);
+                // });
+
+                // Set correct sample duration for current frame
+                sampleDuration = Math.round(refSampleDuration);
             }
 
             mp4Samples.push({
@@ -486,13 +461,6 @@ class MP4Remuxer {
                 // Silent frames should be inserted after wrong-duration frame
                 mp4Samples.push.apply(mp4Samples, silentFrames);
             }
-        }
-
-        if (mp4Samples.length === 0) {
-            //no samples need to remux
-            track.samples = [];
-            track.length = 0;
-            return;
         }
 
         // allocate mdatbox
@@ -520,7 +488,7 @@ class MP4Remuxer {
 
         let latest = mp4Samples[mp4Samples.length - 1];
         lastDts = latest.dts + latest.duration;
-        // this._audioNextDts = lastDts;
+        this._audioNextDts = lastDts;
 
         // fill media segment info & add to info list
         let info = new MediaSegmentInfo();
