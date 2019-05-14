@@ -349,6 +349,8 @@ class MP4Remuxer {
 
         let mp4Samples = [];
 
+        let dropFrameTimes = 0;
+
         // Correct dts for each sample, and calculate sample duration. Then output to mp4Samples
         for (let i = 0; i < samples.length; i++) {
             let sample = samples[i];
@@ -382,7 +384,9 @@ class MP4Remuxer {
                     debugger;
                     // If we're overlapping by more than maxAudioFramesDrift number of frame, drop this sample
                     // read: 音频延迟太多了，不要再播放了, drop it
-                    Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
+                    // fix: 当出现大量音频延迟时，如果每次打印日志并抛出事件会造成页面严重卡顿
+                    dropFrameTimes++;
+                    // Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
                     continue;
                 }
                 else if (dtsCorrection >= maxAudioFramesDrift * refSampleDuration && this._fillAudioTimestampGap && !Browser.safari) {
@@ -486,6 +490,10 @@ class MP4Remuxer {
                 // Silent frames should be inserted after wrong-duration frame
                 mp4Samples.push.apply(mp4Samples, silentFrames);
             }
+        }
+
+        if (dropFrameTimes) {
+            Log.w(this.TAG, `Dropping audio frame because originalDts is too late, total: ${dropFrameTimes}.`);
         }
 
         if (mp4Samples.length === 0) {
