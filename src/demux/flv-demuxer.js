@@ -1173,7 +1173,7 @@ class FLVDemuxer {
         if (keyframe) {
             // 如果 flv tag 告诉我们是关键帧，但是 video tag 包含的 nalus 不包含 idr slice 时 chrome 等浏览器会报错
             // error: ISO-BMFF container metadata for video frame indicates that the frame is a keyframe, but the video frame contents indicate the opposite.
-            if (!units.find(unit => unit.type === 5)) {
+            if (!this._insertFirstIdr && !units.find(unit => unit.type === 5)) {
                 console.log('Fix: flv video tag tell us this is keyframe, but nalus have not a idr type. Add a empty idr type');
                 // 填充空 idr slice
                 const sizeLength = lengthSize + 1;
@@ -1182,6 +1182,8 @@ class FLVDemuxer {
                 idrSliceData[sizeLength - 1] = 5;   // nalu type = 5
                 units.unshift({ type: 5, data: idrSliceData });
                 length += sizeLength;
+                // fix: 只填充一次就行了
+                this._insertFirstIdr = true;
             }
         }
 
