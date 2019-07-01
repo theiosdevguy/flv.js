@@ -1130,8 +1130,6 @@ class FLVDemuxer {
             // console.log('Get keyframe from flv tag info');
         }
 
-        let parsedKeyNalu = false
-
         while (offset < dataSize) {
             if (offset + 4 >= dataSize) {
                 Log.w(this.TAG, `Malformed Nalu near timestamp ${dts}, offset = ${offset}, dataSize = ${dataSize}`);
@@ -1154,19 +1152,6 @@ class FLVDemuxer {
             // 这里需要明确 h264 裸流和 flv 的关系
             let unitType = v.getUint8(offset + lengthSize) & 0x1F;
 
-            /** fix start **/
-            // 如果 flv tag 告诉我们是关键帧，但是第一个 nalu 类型不是 idr 时强制转换
-            if (keyframe && !parsedKeyNalu && unitType !== 5) {
-                console.log('Fix: flv video tag tell us this is keyframe, but the first nalu is not a idr type');
-                // 0xE0 = 224 = 0b11100000
-                // 5 = idr
-                const value = (v.getUint8(offset + lengthSize) & 0xE0) | 5
-                v.setUint8(offset + lengthSize, value)
-                parsedKeyNalu = true;
-                unitType = 5;
-            }
-            /** fix end **/
-
             if (unitType === 5) {  // IDR
                 // console.log('Get IDR nalu');
                 keyframe = true;
@@ -1183,6 +1168,21 @@ class FLVDemuxer {
             }
 
             offset += lengthSize + naluSize;
+        }
+
+        if (keyframe) {
+            // 如果 flv tag 告诉我们是关键帧，但是 video tag 包含的 nalus 不包含 idr slice 时 chrome 等浏览器会报错
+            // error: ISO-BMFF container metadata for video frame indicates that the frame is a keyframe, but the video frame contents indicate the opposite.
+            if (!units.find(unit => unit.type === 5)) {
+                console.log('Fix: flv video tag tell us this is keyframe, but nalus have not a idr type. Add a empty idr type');
+                // 填充空 idr slice
+                const sizeLength = lengthSize + 1;
+                const idrSliceData = new Uint8Array(sizeLength);
+                idrSliceData[lengthSize - 1] = 1;   // nalu data size = 1
+                idrSliceData[sizeLength - 1] = 5;   // nalu type = 5
+                units.unshift({ type: 5, data: idrSliceData });
+                length += sizeLength;
+            }
         }
 
         if (units.length) {
