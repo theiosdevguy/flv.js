@@ -8,7 +8,7 @@
 </head>
 
 <body>
-    
+
     <div class="mainContainer">
         <div>
             <div id="streamURL">
@@ -55,7 +55,7 @@
     </div>
 
     <script src="../dist/flv.js"></script>
-    
+
     <script>
         var checkBoxFields = ['isLive', 'withCredentials', 'hasAudio', 'hasVideo'];
         var streamURL, mediaSourceURL;
@@ -64,7 +64,7 @@
             console.log('isSupported: ' + flvjs.isSupported());
             if (mediaSourceURL.className === '') {
                 var url = document.getElementById('msURL').value;
-    
+
                 var xhr = new XMLHttpRequest();
                 xhr.open('GET', url, true);
                 xhr.onload = function (e) {
@@ -218,7 +218,7 @@
             flv_load();
         });
     </script>
-    
+
 </body>
 
 </html>
