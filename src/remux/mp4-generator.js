@@ -23,7 +23,7 @@ class MP4 {
     static init() {
         // debugger;
         MP4.types = {
-            avc1: [], avcC: [], btrt: [], dinf: [],
+            avc1: [], avcC: [], av01: [], av1C: [], btrt: [], dinf: [],
             dref: [], esds: [], ftyp: [], hdlr: [],
             mdat: [], mdhd: [], mdia: [], mfhd: [],
             minf: [], moof: [], moov: [], mp4a: [],
@@ -325,7 +325,7 @@ class MP4 {
             // else: aac -> mp4a
             return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, MP4.mp4a(meta));
         } else {
-            return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, MP4.avc1(meta));
+            return MP4.box(MP4.types.stsd, MP4.constants.STSD_PREFIX, meta.isAv1 ? MP4.av01(meta) : MP4.avc1(meta));
         }
     }
 
@@ -399,11 +399,10 @@ class MP4 {
         return MP4.box(MP4.types.esds, data);
     }
 
-    static avc1(meta) {
-        let avcc = meta.avcc;
-        let width = meta.codecWidth, height = meta.codecHeight;
+    static generateAvc1AndAv01Data(meta) {
+        const width = meta.codecWidth, height = meta.codecHeight;
 
-        let data = new Uint8Array([
+        return new Uint8Array([
             0x00, 0x00, 0x00, 0x00,  // reserved(4)
             0x00, 0x00, 0x00, 0x01,  // reserved(2) + data_reference_index(2)
             0x00, 0x00, 0x00, 0x00,  // pre_defined(2) + reserved(2)
@@ -430,7 +429,14 @@ class MP4 {
             0x00, 0x18,              // depth
             0xFF, 0xFF               // pre_defined = -1
         ]);
-        return MP4.box(MP4.types.avc1, data, MP4.box(MP4.types.avcC, avcc));
+    }
+
+    static avc1(meta) {
+        return MP4.box(MP4.types.avc1, MP4.generateAvc1AndAv01Data(meta), MP4.box(MP4.types.avcC, meta.avcc));
+    }
+
+    static av01(meta) {
+        return MP4.box(MP4.types.av01, MP4.generateAvc1AndAv01Data(meta), MP4.box(MP4.types.av1C, meta.av1C));
     }
 
     // Movie Extends box

@@ -22,6 +22,7 @@ import SPSParser from './sps-parser.js';
 import DemuxErrors from './demux-errors.js';
 import MediaInfo from '../core/media-info.js';
 import {IllegalStateException} from '../utils/exception.js';
+import { parseAV1CodecConfigurationRecord, parseSequenceHeaderObu } from './av1-parser';
 
 function Swap16(src) {
     return (((src >>> 8) & 0xFF) |
@@ -72,11 +73,11 @@ class FLVDemuxer {
         this._audioInitialMetadataDispatched = false;
         this._videoInitialMetadataDispatched = false;
 
-        this._mediaInfo = new MediaInfo();
+        this._mediaInfo = new MediaInfo();  // read: for record flv native media info
         this._mediaInfo.hasAudio = this._hasAudio;
         this._mediaInfo.hasVideo = this._hasVideo;
         this._metadata = null;
-        this._audioMetadata = null;
+        this._audioMetadata = null; // read: for generate init segment
         this._videoMetadata = null;
 
         this._naluLengthSize = 4;
@@ -875,10 +876,13 @@ class FLVDemuxer {
         let codecId = spec & 15;
 
         // read: 只支持 avc(h264) 编码
-        if (codecId !== 7) {
+        // read: support tencent av1 codec
+        if (!(codecId === 7 || codecId === 13)) {
             this._onError(DemuxErrors.CODEC_UNSUPPORTED, `Flv: Unsupported codec in video frame: ${codecId}`);
             return;
         }
+
+        this._isAv1Video = codecId === 13;
 
         // read: dataOffset + 1 移动到Video数据区
         this._parseAVCVideoPacket(arrayBuffer, dataOffset + 1, dataSize - 1, tagTimestamp, tagPosition, frameType);
@@ -898,13 +902,23 @@ class FLVDemuxer {
         let cts = (cts_unsigned << 8) >> 8;  // convert to 24-bit signed int
 
         if (packetType === 0) {  // AVCDecoderConfigurationRecord
-            // read: AVCsequenceheader只有出现在第一个Video Tag，只有一个。
-            // 为了能够从FLV中获取NALU，必须知道前面的NALU长度所占的字节数，
-            // 通常是1、2、4个字节，这个内容则必须从AVCDecoderConfigurationRecord中获取
-            // 解码器配置，sps, pps
-            this._parseAVCDecoderConfigurationRecord(arrayBuffer, dataOffset + 4, dataSize - 4);
-        } else if (packetType === 1) {  // One or more Nalus
-            this._parseAVCVideoData(arrayBuffer, dataOffset + 4, dataSize - 4, tagTimestamp, tagPosition, frameType, cts);
+            if (!this._isAv1Video) {
+                // read: AVCsequenceheader只有出现在第一个Video Tag，只有一个。
+                // 为了能够从FLV中获取NALU，必须知道前面的NALU长度所占的字节数，
+                // 通常是1、2、4个字节，这个内容则必须从AVCDecoderConfigurationRecord中获取
+                // 解码器配置，sps, pps
+                this._parseAVCDecoderConfigurationRecord(arrayBuffer, dataOffset + 4, dataSize - 4);
+            } else {
+                this._parseAV1CodecConfigurationRecord(arrayBuffer, dataOffset + 4, dataSize - 4);
+            }
+        } else if (packetType === 1) {
+            if (!this._isAv1Video) {
+                // One or more Nalus
+                this._parseAVCVideoData(arrayBuffer, dataOffset + 4, dataSize - 4, tagTimestamp, tagPosition, frameType, cts);
+            } else {
+                this._parseAV1VideoData(arrayBuffer, dataOffset + 4, dataSize - 4, tagTimestamp, tagPosition, frameType, cts);
+            }
+
         } else if (packetType === 2) {
             // empty, AVC end of sequence
         } else {
@@ -1101,6 +1115,77 @@ class FLVDemuxer {
         meta.avcc.set(new Uint8Array(arrayBuffer, dataOffset, dataSize), 0);
         Log.v(this.TAG, 'Parsed AVCDecoderConfigurationRecord');
 
+        this._doHandleTrackMetadata(meta);
+    }
+
+    _parseAV1CodecConfigurationRecord(arrayBuffer, dataOffset, dataSize) {
+        if (dataSize < 4) {
+            Log.w(this.TAG, 'Flv: Invalid AV1CodecConfigurationRecord, lack of data!');
+            return;
+        }
+
+        let meta = this._videoMetadata;
+        const track = this._videoTrack;
+
+        if (!meta) {
+            if (this._hasVideo === false && this._hasVideoFlagOverrided === false) {
+                this._hasVideo = true;
+                this._mediaInfo.hasVideo = true;
+            }
+
+            meta = this._videoMetadata = {};
+            meta.type = 'video';
+            meta.id = track.id;
+            meta.timescale = this._timescale;
+            meta.duration = this._duration;
+        } else {
+            if (typeof meta.avcc !== 'undefined') {
+                Log.w(this.TAG, 'Found another AV1CodecConfigurationRecord!');
+            }
+        }
+
+        const configurationRecord = parseAV1CodecConfigurationRecord(arrayBuffer, dataOffset, dataSize);
+
+        // <sample entry 4CC>.<profile>.<level><tier>.<bitDepth>.<monochrome>.<chromaSubsampling>.
+        // <colorPrimaries>.<transferCharacteristics>.<matrixCoefficients>.<videoFullRangeFlag>
+        let codecString = `av01.${configurationRecord.seq_profile}.`;
+        const paddingZero = (value) => {
+            return value < 10 ? `0${value}` : `${value}`;
+        };
+        codecString += `${paddingZero(configurationRecord.seq_level_idx_0)}${configurationRecord.seq_tier_0 === 0 ? 'M' : 'H'}.`;
+        codecString += `${paddingZero(configurationRecord.BitDepth)}.${configurationRecord.monochrome}`;
+
+        const { _mediaInfo: mi } = this;
+        mi.videoCodec = codecString;
+
+        meta.codec = codecString;   // av01.0.08M.08.0
+
+        meta.codecWidth = mi.width;
+        meta.codecHeight = mi.height;
+        meta.presentWidth = mi.width; // also can find in sequence header obu
+        meta.presentHeight = mi.height;
+
+        if (mi.hasAudio) {
+            if (mi.audioCodec != null) {
+                mi.mimeType = 'video/x-flv; codecs="' + mi.videoCodec + ',' + mi.audioCodec + '"';
+            }
+        } else {
+            mi.mimeType = 'video/x-flv; codecs="' + mi.videoCodec + '"';
+        }
+
+        if (mi.isComplete()) {
+            this._onMediaInfo(mi);
+        }
+
+        meta.isAv1 = true;
+        meta.av1C = new Uint8Array(dataSize);
+        meta.av1C.set(new Uint8Array(arrayBuffer, dataOffset, dataSize), 0);
+        Log.v(this.TAG, 'Parsed AV1CodecConfigurationRecord');
+
+        this._doHandleTrackMetadata(meta);
+    }
+
+    _doHandleTrackMetadata(meta) {
         if (this._isInitialMetadataDispatched()) {
             // flush parsed frames
             if (this._dispatch && (this._audioTrack.length || this._videoTrack.length)) {
@@ -1205,6 +1290,83 @@ class FLVDemuxer {
         }
     }
 
+    _parseAV1VideoData(arrayBuffer, dataOffset, dataSize, tagTimestamp, tagPosition, frameType, cts) {
+        const keyframe = (frameType === 1);  // from FLV Frame Type constants
+
+        const v = new DataView(arrayBuffer, dataOffset, dataSize);
+
+        let offset = 0;
+        const obuData = [];    // obu header + obu size + obu data
+
+        while (offset < dataSize) {
+            let obuLength = 1;
+
+            const obu_header = v.getUint8(offset);
+            const obu_type = (obu_header >> 3) & 0b1111;
+            const obu_extension_flag = (obu_header >> 2) & 1;
+            const obu_has_size_field = (obu_header >> 1) & 1;
+            if (!obu_has_size_field) {
+                console.error('Unsupported AV1 video. obu_has_size_field must be set');
+                return;
+            }
+            if (obu_extension_flag === 1) {
+                obuLength++;   // jump obu_extension_header
+            }
+
+            let obu_size;
+            let obuPayloadOffset;
+            if (obu_has_size_field) {
+                const lebOffset = offset + obuLength;
+                let value = 0;
+                let Leb128Bytes = 0;
+                let leb128_byte;
+                for (let i = 0; i < 8; i++) {
+                    leb128_byte = v.getUint8(lebOffset + i);
+                    value |= ((leb128_byte & 0x7f) << (i * 7));
+                    Leb128Bytes += 1;
+                    obuLength += 1;
+                    if (!(leb128_byte & 0x80)) {
+                        break;
+                    }
+                }
+                obuPayloadOffset = lebOffset + Leb128Bytes - 1; // 注意这里减1, 因为lebOffset就是读的第一个字节
+                obu_size = value;
+            }
+            obuLength += obu_size;
+
+            if (obu_type === 1) {
+                // sequence_header_obu()
+                // const sequenceHeaderObu = parseSequenceHeaderObu(arrayBuffer, dataOffset + obuPayloadOffset, obu_size);
+            }
+
+            obuData.push({
+                obuType: obu_type,
+                data: new Uint8Array(arrayBuffer, dataOffset + offset, obuLength),
+            });
+
+            offset += obuLength;
+        }
+
+        let dts = this._timestampBase + tagTimestamp;
+        if (obuData.length) {
+            const track = this._videoTrack;
+            const av1Sample = {
+                // units: obuData,
+                // units: [{ data: new Uint8Array(arrayBuffer, dataOffset, dataSize) }],
+                units: obuData,
+                length: dataSize,
+                isKeyframe: keyframe,
+                dts: dts,
+                cts: cts,
+                pts: (dts + cts)
+            };
+            if (keyframe) {
+                av1Sample.fileposition = tagPosition;
+            }
+            track.samples.push(av1Sample);
+            track.length += dataSize;
+        }
+    }
 }
 
 export default FLVDemuxer;
