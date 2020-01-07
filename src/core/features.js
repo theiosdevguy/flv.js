@@ -26,6 +26,11 @@ class Features {
                window.MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E,mp4a.40.2"');
     }
 
+    static supportMSEMP4AV1Playback() {
+        return window.MediaSource &&
+            window.MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08.0"');
+    }
+
     static supportNetworkStreamIO() {
         let ioctl = new IOController({}, createDefaultConfig());
         let loaderType = ioctl.loaderType;
@@ -66,6 +71,7 @@ class Features {
         features.nativeMP4H264Playback = Features.supportNativeMediaPlayback('video/mp4; codecs="avc1.42001E, mp4a.40.2"');
         features.nativeWebmVP8Playback = Features.supportNativeMediaPlayback('video/webm; codecs="vp8.0, vorbis"');
         features.nativeWebmVP9Playback = Features.supportNativeMediaPlayback('video/webm; codecs="vp9"');
+        features.nativeMP4AV1Playback = Features.supportNativeMediaPlayback('video/mp4; codecs="av01.0.08M.08.0"');
 
         return features;
     }

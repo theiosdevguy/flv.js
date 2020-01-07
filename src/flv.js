@@ -57,6 +57,10 @@ function isSupported() {
     return Features.supportMSEH264Playback();
 }
 
+function isSupportedMp4Av1() {
+    return Features.supportMSEMP4AV1Playback();
+}
+
 function getFeatureList() {
     return Features.getFeatureList();
 }
@@ -67,6 +71,7 @@ let flvjs = {};
 
 flvjs.createPlayer = createPlayer;
 flvjs.isSupported = isSupported;
+flvjs.isSupportedMp4Av1 = isSupportedMp4Av1;
 flvjs.getFeatureList = getFeatureList;
 
 flvjs.BaseLoader = BaseLoader;
