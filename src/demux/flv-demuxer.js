@@ -1156,6 +1156,12 @@ class FLVDemuxer {
         codecString += `${paddingZero(configurationRecord.BitDepth)}.${configurationRecord.monochrome}`;
 
         const { _mediaInfo: mi } = this;
+        mi.profile = configurationRecord.seq_profile;
+        mi.level = configurationRecord.seq_level_idx_0;
+        mi.refFrames = '';
+        mi.chromaFormat = '';
+        mi.sarNum = '';
+        mi.sarDen = '';
         mi.videoCodec = codecString;
 
         meta.codec = codecString;   // av01.0.08M.08.0

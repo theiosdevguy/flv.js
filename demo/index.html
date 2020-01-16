@@ -103,6 +103,10 @@
                 enableWorker: false,
                 lazyLoadMaxDuration: 3 * 60,
                 seekType: 'range',
+                statisticsInfoReportInterval: 4000,
+            });
+            player.on(flvjs.Events.STATISTICS_INFO, function (statisticsInfo) {
+                console.log(statisticsInfo);
             });
             player.attachMediaElement(element);
             player.load();
