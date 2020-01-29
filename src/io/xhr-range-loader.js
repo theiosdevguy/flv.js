@@ -153,7 +153,7 @@ class RangeLoader extends BaseLoader {
             let headers = seekConfig.headers;
 
             for (let key in headers) {
-                if (headers.hasOwnProperty(key)) {
+                if (Object.prototype.hasOwnProperty.call(headers, key)) {
                     xhr.setRequestHeader(key, headers[key]);
                 }
             }
@@ -164,7 +164,7 @@ class RangeLoader extends BaseLoader {
             let headers = this._config.headers;
 
             for (let key in headers) {
-                if (headers.hasOwnProperty(key)) {
+                if (Object.prototype.hasOwnProperty.call(headers, key)) {
                     xhr.setRequestHeader(key, headers[key]);
                 }
             }

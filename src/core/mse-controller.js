@@ -445,7 +445,7 @@ class MSEController {
                 try {
                     this._sourceBuffers[type].appendBuffer(segment.data);
                     this._isBufferFull = false;
-                    if (type === 'video' && segment.hasOwnProperty('info')) {
+                    if (type === 'video' && Object.prototype.hasOwnProperty.call(segment, 'info')) {
                         this._idrList.appendArray(segment.info.syncPoints);
                     }
                 } catch (error) {

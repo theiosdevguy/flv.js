@@ -399,7 +399,7 @@ class TransmuxingController {
         if (this._statisticsReporter == null) {
             this._statisticsReporter = self.setInterval(
                 this._reportStatisticsInfo.bind(this),
-            this._config.statisticsInfoReportInterval);
+                this._config.statisticsInfoReportInterval);
         }
     }
 

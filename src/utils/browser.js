@@ -116,7 +116,7 @@ function detect() {
     browser.platform = matched.platform;
 
     for (let key in Browser) {
-        if (Browser.hasOwnProperty(key)) {
+        if (Object.prototype.hasOwnProperty.call(browser, key)) {
             delete Browser[key];
         }
     }

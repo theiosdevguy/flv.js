@@ -149,9 +149,9 @@ class FlvPlayer {
         });
         this._msectl.on(MSEEvents.ERROR, (info) => {
             this._emitter.emit(PlayerEvents.ERROR,
-                               ErrorTypes.MEDIA_ERROR,
-                               ErrorDetails.MEDIA_MSE_ERROR,
-                               info
+                ErrorTypes.MEDIA_ERROR,
+                ErrorDetails.MEDIA_MSE_ERROR,
+                info
             );
         });
 

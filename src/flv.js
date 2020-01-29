@@ -39,7 +39,7 @@ function createPlayer(mediaDataSource, optionalConfig) {
         throw new InvalidArgumentException('MediaDataSource must be an javascript object!');
     }
 
-    if (!mds.hasOwnProperty('type')) {
+    if (!Object.prototype.hasOwnProperty.call(mds, 'type')) {
         throw new InvalidArgumentException('MediaDataSource must has type field to indicate video file type!');
     }
 

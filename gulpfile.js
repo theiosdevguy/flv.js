@@ -69,10 +69,59 @@ function doLint(paths, exit) {
         .pipe(exit ? eslint.failAfterError() : eslint.result(function () {}));
 }
 
-gulp.task('default', ['clean', 'lint', 'build']);
-gulp.task('release', ['clean', 'lint', 'build', 'minimize']);
+gulp.task('clean', function () {
+    return del([
+        'dist/*'
+    ]);
+});
 
-gulp.task('watch', ['clean'], function () {
+gulp.task('lint', function () {
+    return doLint(['gulpfile.js', 'src/**/*.js'], true);
+});
+
+gulp.task('build', gulp.series(gulp.parallel('clean', 'lint'), function () {
+    let b = browserify({
+        entries: 'src/index.js',
+        standalone: 'flvjs',
+        debug: true,
+        transform: ['babelify', 'browserify-versionify'],
+        plugin: ['browserify-derequire']
+    });
+
+    return doBundle(b);
+}));
+
+gulp.task('minimize', gulp.series(gulp.parallel('lint', 'build'), function () {
+    let options = {
+        sourceMap: {
+            includeSources: true,
+            root: './src/'
+        },
+        mangle: true,
+        compress: {
+            sequences: true,
+            dead_code: true,
+            conditionals: true,
+            booleans: true,
+            unused: true,
+            if_return: true,
+            join_vars: true
+        }
+    };
+
+    return gulp.src('dist/flv.js')
+        .pipe(rename({extname: '.min.js'}))
+        .pipe(sourcemaps.init({loadMaps: true}))
+        .pipe(uglify(options))
+        .on('error', console.error.bind(console))
+        .pipe(sourcemaps.write('./'))
+        .pipe(gulp.dest('./dist/'));
+}));
+
+gulp.task('default', gulp.series(gulp.parallel('clean', 'lint', 'build')));
+gulp.task('release', gulp.series(gulp.parallel('clean', 'lint', 'build', 'minimize')));
+
+gulp.task('watch', gulp.series('clean', function () {
     let gulpWatcher = gulp.watch(['gulpfile.js', 'src/**/*.js']);
 
     gulpWatcher.on('change', function (e) {
@@ -92,52 +141,4 @@ gulp.task('watch', ['clean'], function () {
         });
         require('opn')('http://localhost:8000/demo/index.html');
     });
-});
-
-gulp.task('clean', function () {
-    return del([
-        'dist/*'
-    ]);
-});
-
-gulp.task('lint', function () {
-    return doLint(['gulpfile.js', 'src/**/*.js'], true);
-});
-
-gulp.task('build', ['clean', 'lint'], function () {
-    let b = browserify({
-        entries: 'src/index.js',
-        standalone: 'flvjs',
-        debug: true,
-        transform: ['babelify', 'browserify-versionify'],
-        plugin: ['browserify-derequire']
-    });
-
-    return doBundle(b);
-});
-
-gulp.task('minimize', ['lint', 'build'], function () {
-    let options = {
-        sourceMap: true,
-        sourceMapIncludeSources: true,
-        sourceMapRoot: './src/',
-        mangle: true,
-        compress: {
-            sequences: true,
-            dead_code: true,
-            conditionals: true,
-            booleans: true,
-            unused: true,
-            if_return: true,
-            join_vars: true
-        }
-    };
-
-    return gulp.src('dist/flv.js')
-        .pipe(rename({extname: '.min.js'}))
-        .pipe(sourcemaps.init({loadMaps: true}))
-            .pipe(uglify(options))
-            .on('error', console.error.bind(console))
-        .pipe(sourcemaps.write('./'))
-        .pipe(gulp.dest('./dist/'));
-});
+}));

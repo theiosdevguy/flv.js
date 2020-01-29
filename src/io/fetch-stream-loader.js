@@ -78,7 +78,7 @@ class FetchStreamLoader extends BaseLoader {
         if (typeof seekConfig.headers === 'object') {
             let configHeaders = seekConfig.headers;
             for (let key in configHeaders) {
-                if (configHeaders.hasOwnProperty(key)) {
+                if (Object.prototype.hasOwnProperty.call(configHeaders, key)) {
                     headers.append(key, configHeaders[key]);
                 }
             }

@@ -37,7 +37,7 @@ class NativePlayer {
         if (mediaDataSource.type.toLowerCase() === 'flv') {
             throw new InvalidArgumentException('NativePlayer does\'t support flv MediaDataSource input!');
         }
-        if (mediaDataSource.hasOwnProperty('segments')) {
+        if (Object.prototype.hasOwnProperty.call(mediaDataSource, 'segments')) {
             throw new InvalidArgumentException(`NativePlayer(${mediaDataSource.type}) doesn't support multipart playback!`);
         }
 
@@ -126,7 +126,7 @@ class NativePlayer {
         this._mediaElement.load();
         this._statisticsReporter = window.setInterval(
             this._reportStatisticsInfo.bind(this),
-        this._config.statisticsInfoReportInterval);
+            this._config.statisticsInfoReportInterval);
     }
 
     unload() {

@@ -539,15 +539,15 @@ class MP4Remuxer {
         info.originalBeginDts = mp4Samples[0].originalDts;
         info.originalEndDts = latest.originalDts + latest.duration;
         info.firstSample = new SampleInfo(mp4Samples[0].dts,
-                                          mp4Samples[0].pts,
-                                          mp4Samples[0].duration,
-                                          mp4Samples[0].originalDts,
-                                          false);
+            mp4Samples[0].pts,
+            mp4Samples[0].duration,
+            mp4Samples[0].originalDts,
+            false);
         info.lastSample = new SampleInfo(latest.dts,
-                                         latest.pts,
-                                         latest.duration,
-                                         latest.originalDts,
-                                         false);
+            latest.pts,
+            latest.duration,
+            latest.originalDts,
+            false);
         if (!this._isLive) {
             this._audioSegmentInfoList.append(info);
         }
@@ -745,15 +745,15 @@ class MP4Remuxer {
         info.originalBeginDts = mp4Samples[0].originalDts;
         info.originalEndDts = latest.originalDts + latest.duration;
         info.firstSample = new SampleInfo(mp4Samples[0].dts,
-                                          mp4Samples[0].pts,
-                                          mp4Samples[0].duration,
-                                          mp4Samples[0].originalDts,
-                                          mp4Samples[0].isKeyframe);
+            mp4Samples[0].pts,
+            mp4Samples[0].duration,
+            mp4Samples[0].originalDts,
+            mp4Samples[0].isKeyframe);
         info.lastSample = new SampleInfo(latest.dts,
-                                         latest.pts,
-                                         latest.duration,
-                                         latest.originalDts,
-                                         latest.isKeyframe);
+            latest.pts,
+            latest.duration,
+            latest.originalDts,
+            latest.isKeyframe);
         if (!this._isLive) {
             this._videoSegmentInfoList.append(info);
         }

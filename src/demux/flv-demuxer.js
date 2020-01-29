@@ -402,7 +402,7 @@ class FLVDemuxer {
         // read: 解析 script tag 的 amf 包
         let scriptData = AMF.parseScriptData(arrayBuffer, dataOffset, dataSize);
 
-        if (scriptData.hasOwnProperty('onMetaData')) {
+        if (Object.prototype.hasOwnProperty.call(scriptData, 'onMetaData')) {
             if (scriptData.onMetaData == null || typeof scriptData.onMetaData !== 'object') {
                 Log.w(this.TAG, 'Invalid onMetaData structure!');
                 return;
